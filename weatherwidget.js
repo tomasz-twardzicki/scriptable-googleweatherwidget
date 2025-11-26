@@ -96,7 +96,11 @@ async function fetchWeather(key, lat, lon) {
   req.headers = { "Accept": "application/json" };
 
   const json = await req.loadJSON();
-  writeCache(json);
+  // If Scriptable exposes status code, we can check it:
+  if (req.response && req.response.statusCode && req.response.statusCode >= 400) {
+    throw new Error(`HTTP ${req.response.statusCode}`);
+  }
+
   return json;
 }
 
@@ -313,11 +317,19 @@ try {
   data = readCache();
 
   // Try fresh network
+  // SAFEGUARD: cache is only updated if this succeeds.
   try {
     const fresh = await fetchWeather(apiKey, loc.latitude, loc.longitude);
-    data = fresh; // response is the current-conditions object per docs
+    // If fetch succeeds, overwrite in-memory data AND cache.
+    data = fresh;
+    writeCache(fresh);
   } catch (netErr) {
-    if (!data) throw netErr; // no cache; bubble up
+    // Network/timeout/HTTP error: keep using existing cache (if any).
+    if (!data) {
+      // No cache to fall back to – propagate error so user sees error widget.
+      throw netErr;
+    }
+    // If there *is* cache, we silently continue with cached `data`.
   }
 
   const placeName = loc.name
